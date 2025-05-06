@@ -10,18 +10,18 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-# === JUSTSEND KONFIG ===
+# JustSend konfiguracja
 JUSTSEND_URL = "https://justsend.io/api/sender/singlemessage/send"
 APP_KEY = os.getenv("JS_APP_KEY")
-SENDER = os.getenv("JS_SENDER", "test")  # <- zmień na swój nadawca
+SENDER = os.getenv("JS_SENDER", "WEB")
 VARIANT = os.getenv("JS_VARIANT", "PRO")
 
-# === ELEVENLABS WEBHOOK SECRET ===
+# Webhook secret do weryfikacji HMAC
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET")
 
 @app.route("/", methods=["GET"])
 def index():
-    return "✅ Serwer działa"
+    return "✅ Serwer działa poprawnie"
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -29,6 +29,7 @@ def webhook():
         raw_body = request.data
         signature = request.headers.get("elevenlabs-signature")
 
+        # Zapisz log webhooka
         with open("logi_webhook.txt", "a") as log_file:
             log_file.write("===== NOWY WEBHOOK =====\n")
             log_file.write("Headers:\n")
@@ -43,11 +44,11 @@ def webhook():
         try:
             t = signature.split(",")[0].split("=")[1]
             sig = signature.split(",")[1].split("=")[1]
-        except Exception as e:
+        except Exception:
             return jsonify({"error": "Nieprawidłowy format podpisu"}), 400
 
         if abs(int(time.time()) - int(t)) > 7200:
-            return jsonify({"error": "Stary podpis"}), 400
+            return jsonify({"error": "Zbyt stary podpis"}), 400
 
         message = f"{t}.{raw_body.decode()}"
         h = hmac.new(WEBHOOK_SECRET.encode(), message.encode(), hashlib.sha256).hexdigest()
@@ -55,12 +56,14 @@ def webhook():
             print("⚠️ Błąd podpisu HMAC – kontynuuję mimo to")
 
         data = request.get_json()
-        meta = data.get("data", {}).get("metadata", {})
-        phone = meta.get("phone") or "N/N"
-        text = meta.get("text") or "N/N"
-        adres = meta.get("adres") or meta.get("adres_problem") or "N/N"
-        problem = meta.get("problem") or "N/N"
+        results = data.get("data", {}).get("analysis", {}).get("data_collection_results", {})
 
+        phone = results.get("phone", {}).get("value", "N/N")
+        text = results.get("text", {}).get("value", "N/N")
+        adres = results.get("adres", {}).get("value", "N/N")
+        problem = results.get("problem", {}).get("value", "N/N")
+
+        # Formatuj numer telefonu
         if phone.startswith("0"):
             phone = phone[1:]
         if phone != "N/N" and not phone.startswith("48"):
@@ -88,6 +91,7 @@ def webhook():
 
         response = requests.post(JUSTSEND_URL, json=payload, headers=headers)
 
+        # Zapisz log wysyłki SMS
         with open("logi_webhook.txt", "a") as log_file:
             log_file.write("===== WYSYŁKA SMS =====\n")
             log_file.write("Payload:\n")
@@ -107,7 +111,7 @@ def webhook():
             }), response.status_code
 
     except Exception as e:
-        print("❌ Błąd krytyczny:", str(e))
+        print("❌ Błąd:", str(e))
         return jsonify({"error": str(e)}), 500
 
 @app.route("/log", methods=["GET"])
@@ -117,7 +121,7 @@ def log():
             content = f.read()
         return f"<pre>{content}</pre>"
     except FileNotFoundError:
-        return "Brak pliku logi_webhook.txt", 404
+        return "Brak logów", 404
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))

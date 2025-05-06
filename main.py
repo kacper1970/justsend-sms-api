@@ -57,13 +57,23 @@ def webhook():
         data = request.get_json()
         metadata = data.get("data", {}).get("metadata", {})
 
-        phone = metadata.get("phone")
-        text = metadata.get("text")
-        adres = metadata.get("adres_problem")
-        problem = metadata.get("problem")
+       phone = metadata.get("phone")
+text = metadata.get("text")
+adres = metadata.get("adres")
+problem = metadata.get("problem")
 
-        if not all([phone, text, adres, problem]):
-            return jsonify({"error": "Brakuje wymaganych danych", "metadata": metadata}), 400
+# 🧪 Loguj wszystko, co przychodzi
+print("==> Odebrano webhook od ElevenLabs:")
+print(json.dumps(metadata, indent=2))
+
+# 📤 Sprawdź kompletność danych
+if not all([phone, text, adres, problem]):
+    print("⚠️ Brakuje jednego lub więcej pól – SMS nie zostanie wysłany.")
+    return jsonify({
+        "status": "przyjęto",
+        "note": "brak wymaganych danych – SMS nie wysłano",
+        "odebrano": metadata
+    }), 200
 
         sms_message = (
             "Potwierdzenie wizyty:\n"

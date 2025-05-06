@@ -1,10 +1,13 @@
+import os
+import requests
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import requests
-import os
 
 app = Flask(__name__)
-CORS(app)  # Dodanie obsługi CORS
+CORS(app)
+
+API_URL = "https://rest.justsend.pl/sender/singlemessage/send"
+API_KEY = os.getenv("JS_API_KEY")
 
 @app.route('/send_sms', methods=['POST'])
 def send_sms():
@@ -16,17 +19,18 @@ def send_sms():
         return jsonify({"error": "Brakuje numeru telefonu lub treści"}), 400
 
     payload = {
-        "username": os.getenv("JS_LOGIN"),
-        "password": os.getenv("JS_PASS"),
+        "recipient": phone,
+        "messageText": text,
         "sender": os.getenv("JS_SENDER"),
-        "text": text,
-        "phone": phone,
-        "type": "eco"
+        "messageCustomId": "msg-" + phone[-4:]
     }
 
-    response = requests.post("https://rest.justsend.pl/api/rest/message",
-                             json=payload,
-                             headers={"Content-Type": "application/json"})
+    headers = {
+        "Authorization": f"Bearer {API_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    response = requests.post(API_URL, json=payload, headers=headers)
 
     return jsonify({
         "status": response.status_code,
@@ -35,4 +39,4 @@ def send_sms():
 
 @app.route("/", methods=["GET"])
 def home():
-    return "JustSend SMS API działa ✅"
+    return "API JustSend V2 działa ✅"

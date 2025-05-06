@@ -15,12 +15,12 @@ APP_KEY = os.getenv("JS_APP_KEY")
 SENDER = os.getenv("JS_SENDER", "ENERTIA")
 VARIANT = os.getenv("JS_VARIANT", "PRO")
 
-# Secret z ElevenLabs (Webhook Settings)
+# Webhook Secret z ElevenLabs
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET")
 
 @app.route("/", methods=["GET"])
 def home():
-    return "✅ API działa – HMAC + SMS"
+    return "✅ API działa – webhook + HMAC + SMS"
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -35,25 +35,25 @@ def webhook():
             timestamp_part, signature_part = signature_header.split(",")
             timestamp = timestamp_part.split("=")[1]
             sent_signature = signature_part.split("=")[1]
-        except Exception:
-            return jsonify({"error": "Nieprawidłowy format nagłówka"}), 400
+        except Exception as e:
+            return jsonify({"error": "Nieprawidłowy format nagłówka", "details": str(e)}), 400
 
-        # Sprawdź, czy podpis nie jest za stary (np. starszy niż 5 min)
+        # Sprawdzenie czy podpis nie jest za stary (300s = 5 min)
         if abs(int(time.time()) - int(timestamp)) > 300:
             return jsonify({"error": "Zbyt stary podpis"}), 400
 
-        # Oblicz swój podpis
+        # Oblicz własny podpis HMAC
         message = f"{timestamp}.{raw_body.decode('utf-8')}"
         computed_signature = hmac.new(
-            key=WEBHOOK_SECRET.encode(),
-            msg=message.encode(),
+            key=WEBHOOK_SECRET.encode("utf-8"),
+            msg=message.encode("utf-8"),
             digestmod=hashlib.sha256
         ).hexdigest()
 
         if not hmac.compare_digest(f"v0={computed_signature}", f"v0={sent_signature}"):
-            return jsonify({"error": "Nieprawidłowy podpis"}), 403
+            return jsonify({"error": "Nieprawidłowy podpis HMAC"}), 403
 
-        # Odbierz dane i przygotuj SMS
+        # Parsowanie danych JSON
         data = request.get_json()
         metadata = data.get("data", {}).get("metadata", {})
 
@@ -63,7 +63,7 @@ def webhook():
         problem = metadata.get("problem")
 
         if not all([phone, text, adres, problem]):
-            return jsonify({"error": "Brakuje wymaganych danych"}), 400
+            return jsonify({"error": "Brakuje wymaganych danych", "metadata": metadata}), 400
 
         sms_message = (
             "Potwierdzenie wizyty:\n"
@@ -91,13 +91,13 @@ def webhook():
             return jsonify({"status": "OK", "message": "SMS wysłany"}), 200
         else:
             return jsonify({
-                "status": "Błąd",
+                "status": "Błąd przy wysyłaniu SMS",
                 "code": response.status_code,
                 "response": response.text
             }), response.status_code
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Błąd krytyczny aplikacji", "details": str(e)}), 500
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))

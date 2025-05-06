@@ -1,85 +1,132 @@
-from fastapi import FastAPI, Request
-import aiohttp
-import asyncio
+from flask import Flask, request, jsonify
+import os
+import hmac
+import hashlib
+import time
 import json
-from datetime import datetime
+import requests
 import re
+from flask_cors import CORS
 
-app = FastAPI()
+app = Flask(__name__)
+CORS(app)
 
-JUSTSEND_API_URL = "https://api.justsend.pl/api/sender/singlemessage/send"
-JUSTSEND_API_KEY = "Twój_Klucz_API_Tutaj"  # <-- Wstaw swój klucz API
+# JustSend konfiguracja
+JUSTSEND_URL = "https://justsend.io/api/sender/singlemessage/send"
+APP_KEY = os.getenv("JS_APP_KEY")
+SENDER = os.getenv("JS_SENDER", "WEB")
+VARIANT = os.getenv("JS_VARIANT", "PRO")
 
-LOG_FILE = "webhook_logs.txt"
+# Webhook secret do weryfikacji HMAC
+WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET")
 
-# Zapisz webhook do pliku logów
-def log_to_file(text: str):
-    with open(LOG_FILE, "a", encoding="utf-8") as f:
-        f.write(text + "\n\n")
+@app.route("/", methods=["GET"])
+def index():
+    return "✅ Serwer działa poprawnie"
 
-# Formatuj numer telefonu do formatu 48793930991
-def format_phone_number(phone: str) -> str:
-    phone_digits_only = re.sub(r"\D", "", phone)
-    if not phone_digits_only.startswith("48"):
-        phone_digits_only = f"48{phone_digits_only}"
-    return phone_digits_only
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    try:
+        raw_body = request.data
+        signature = request.headers.get("elevenlabs-signature")
 
-# Główna funkcja do wysyłki SMS
-async def send_sms(payload: dict):
-    async with aiohttp.ClientSession() as session:
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {JUSTSEND_API_KEY}"
+        # Zapisz log webhooka
+        with open("logi_webhook.txt", "a") as log_file:
+            log_file.write("===== NOWY WEBHOOK =====\n")
+            log_file.write("Headers:\n")
+            log_file.write(json.dumps(dict(request.headers), indent=2))
+            log_file.write("\n\nBody:\n")
+            log_file.write(raw_body.decode("utf-8"))
+            log_file.write("\n\n")
+
+        if not signature:
+            return jsonify({"error": "Brak podpisu"}), 401
+
+        try:
+            t = signature.split(",")[0].split("=")[1]
+            sig = signature.split(",")[1].split("=")[1]
+        except Exception:
+            return jsonify({"error": "Nieprawidłowy format podpisu"}), 400
+
+        if abs(int(time.time()) - int(t)) > 7200:
+            return jsonify({"error": "Zbyt stary podpis"}), 400
+
+        message = f"{t}.{raw_body.decode()}"
+        h = hmac.new(WEBHOOK_SECRET.encode(), message.encode(), hashlib.sha256).hexdigest()
+        if f"v0={h}" != f"v0={sig}":
+            print("⚠️ Błąd podpisu HMAC – kontynuuję mimo to")
+
+        data = request.get_json()
+        results = data.get("data", {}).get("analysis", {}).get("data_collection_results", {})
+
+        phone = results.get("phone", {}).get("value", "N/N")
+        text = results.get("text", {}).get("value", "N/N")
+        adres = results.get("adres", {}).get("value", "N/N")
+        problem = results.get("problem", {}).get("value", "N/N")
+
+        # Oczyść numer z nie-cyfrowych znaków
+        phone = re.sub(r"\D", "", phone)
+
+        # Dodaj prefix kraju jeśli potrzeba
+        if phone.startswith("0"):
+            phone = phone[1:]
+        if phone and not phone.startswith("48"):
+            phone = "48" + phone
+
+        message_text = (
+            f"Potwierdzenie wizyty:\n"
+            f"📅 Termin: {text}\n"
+            f"📍 Adres: {adres}\n"
+            f"📞 Tel: {phone}\n"
+            f"🛠️ Problem: {problem}"
+        )
+
+        payload = {
+            "sender": SENDER,
+            "msisdn": phone,
+            "bulkVariant": VARIANT,
+            "content": message_text
         }
-        async with session.post(JUSTSEND_API_URL, json=payload, headers=headers) as response:
-            response_text = await response.text()
-            return response.status, response_text
 
-@app.post("/")
-async def webhook_listener(request: Request):
-    headers = dict(request.headers)
-    body = await request.json()
+        headers = {
+            "App-Key": APP_KEY,
+            "Content-Type": "application/json"
+        }
 
-    # Logujemy webhooka
-    log_text = f"===== NOWY WEBHOOK =====\nHeaders:\n{json.dumps(headers, indent=2)}\n\nBody:\n{json.dumps(body, indent=2, ensure_ascii=False)}"
-    log_to_file(log_text)
+        response = requests.post(JUSTSEND_URL, json=payload, headers=headers)
 
-    # Wyciągamy dane
-    data = body.get("data", {})
-    extracted = data.get("analysis", {}).get("data_collection_results", {})
+        # Zapisz log wysyłki SMS
+        with open("logi_webhook.txt", "a") as log_file:
+            log_file.write("===== WYSYŁKA SMS =====\n")
+            log_file.write("Payload:\n")
+            log_file.write(json.dumps(payload, indent=2, ensure_ascii=False))
+            log_file.write("\n\nResponse:\n")
+            log_file.write(f"Status code: {response.status_code}\n")
+            log_file.write(response.text)
+            log_file.write("\n\n\n")
 
-    # Jeśli nie ma wymaganych danych – kończymy
-    if not extracted:
-        return {"status": "ignored - no data"}
+        if response.status_code == 204:
+            return jsonify({"status": "OK", "message": "SMS wysłany"}), 200
+        else:
+            return jsonify({
+                "status": "Błąd SMS",
+                "code": response.status_code,
+                "response": response.text
+            }), response.status_code
 
-    date = extracted.get("text", {}).get("value", "N/N")
-    address = extracted.get("adres", {}).get("value", "N/N")
-    phone = extracted.get("phone", {}).get("value", "N/N")
-    problem = extracted.get("problem", {}).get("value", "N/N")
+    except Exception as e:
+        print("❌ Błąd:", str(e))
+        return jsonify({"error": str(e)}), 500
 
-    # Formatowanie numeru telefonu
-    msisdn = format_phone_number(phone)
+@app.route("/log", methods=["GET"])
+def log():
+    try:
+        with open("logi_webhook.txt", "r") as f:
+            content = f.read()
+        return f"<pre>{content}</pre>"
+    except FileNotFoundError:
+        return "Brak logów", 404
 
-    # Treść wiadomości
-    content = (
-        f"Potwierdzenie wizyty:\n"
-        f"📅 Termin: {date}\n"
-        f"📍 Adres: {address}\n"
-        f"📞 Tel: {msisdn}\n"
-        f"🛠️ Problem: {problem}"
-    )
-
-    # Payload SMS
-    sms_payload = {
-        "sender": "WEB",
-        "msisdn": msisdn,
-        "bulkVariant": "PRO",
-        "content": content
-    }
-
-    # Wysyłka SMS i log
-    status, response_text = await send_sms(sms_payload)
-    sms_log = f"===== WYSYŁKA SMS =====\nPayload:\n{json.dumps(sms_payload, indent=2, ensure_ascii=False)}\n\nResponse:\nStatus code: {status}\n{response_text}"
-    log_to_file(sms_log)
-
-    return {"status": "ok", "sms_status": status}
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)

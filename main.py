@@ -39,7 +39,7 @@ def webhook():
             return jsonify({"error": "Nieprawidłowy format nagłówka", "details": str(e)}), 400
 
         # Sprawdzenie czy podpis nie jest za stary (300s = 5 min)
-        if abs(int(time.time()) - int(timestamp)) > 300:
+        if abs(int(time.time()) - int(timestamp)) > 7200:
             return jsonify({"error": "Zbyt stary podpis"}), 400
 
         # Oblicz własny podpis HMAC

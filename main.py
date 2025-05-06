@@ -21,22 +21,30 @@ def webhook():
     try:
         data = request.get_json()
 
-        # Pobieramy pierwszy komunikat użytkownika
-        transcript = data.get("data", {}).get("transcript", [])
-        user_message = next((t["message"] for t in transcript if t["role"] == "user"), None)
+        metadata = data.get("data", {}).get("metadata", {})
+        phone = metadata.get("phone")
+        text = metadata.get("text")
+        adres = metadata.get("adres_problem")
+        problem = metadata.get("problem")
 
-        # Numer telefonu z metadanych
-        phone = data.get("data", {}).get("metadata", {}).get("phone", None)
+        # Walidacja
+        if not all([phone, text, adres, problem]):
+            return jsonify({"error": "Brakuje jednego lub więcej wymaganych pól w metadata"}), 400
 
-        if not phone or not user_message:
-            return jsonify({"error": "Brakuje numeru telefonu lub wiadomości użytkownika"}), 400
+        # Tworzenie treści SMS
+        sms_message = (
+            "Potwierdzenie wizyty:\n"
+            f"📅 Termin: {text}\n"
+            f"📍 Adres: {adres}\n"
+            f"📞 Tel: {phone}\n"
+            f"🛠️ Problem: {problem}"
+        )
 
-        # Wysyłka SMS
         payload = {
             "sender": SENDER,
             "msisdn": phone,
             "bulkVariant": VARIANT,
-            "content": f"Twoja rozmowa: {user_message}"
+            "content": sms_message
         }
 
         headers = {
@@ -47,7 +55,7 @@ def webhook():
         response = requests.post(JUSTSEND_URL, json=payload, headers=headers)
 
         if response.status_code == 204:
-            return jsonify({"status": "OK", "message": "SMS został wysłany pomyślnie"}), 200
+            return jsonify({"status": "OK", "message": "SMS wysłany"}), 200
         else:
             return jsonify({
                 "status": "Błąd",
@@ -58,7 +66,7 @@ def webhook():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# Uruchamianie aplikacji – tryb deweloperski
+# Serwer deweloperski
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)

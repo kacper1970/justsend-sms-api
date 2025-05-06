@@ -56,23 +56,15 @@ def webhook():
         data = request.get_json()
         metadata = data.get("data", {}).get("metadata", {})
 
-        phone = metadata.get("phone")
-        text = metadata.get("text")
-        adres = metadata.get("adres")
-        problem = metadata.get("problem")
-
         # 🧾 Logowanie webhooka
         print("📩 Odebrano webhook:")
         print(json.dumps(metadata, indent=2))
 
-        # ✅ Jeżeli brakuje danych – nie wysyłamy SMS, ale zwracamy 200
-        if not all([phone, text, adres, problem]):
-            print("⚠️ Brakuje pól – SMS nie zostanie wysłany.")
-            return jsonify({
-                "status": "przyjęto",
-                "note": "brak wymaganych danych – SMS nie wysłano",
-                "odebrano": metadata
-            }), 200
+        # 📦 Pobieranie danych z domyślną wartością "N/N" jeśli brak
+        phone = metadata.get("phone") or "N/N"
+        text = metadata.get("text") or "N/N"
+        adres = metadata.get("adres") or metadata.get("adres_problem") or "N/N"
+        problem = metadata.get("problem") or "N/N"
 
         # ✉️ Tworzenie treści SMS
         sms_message = (

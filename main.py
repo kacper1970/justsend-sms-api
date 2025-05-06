@@ -16,7 +16,7 @@ SENDER = os.getenv("JS_SENDER", "ENERTIA")
 VARIANT = os.getenv("JS_VARIANT", "PRO")
 
 # Secret z ElevenLabs (Webhook Settings)
-WEBHOOK_SECRET = os.getenv("wsec_fc5713b7a90b2061b760cdb06b7bd0b90f48b49435bb536ee43b0b4bc1e8e99e")
+WEBHOOK_SECRET = os.getenv("wsec_e756ffd27b3d5120645e23cc898722fcbba713e66adb5916cec1d9c2087225fa")
 
 @app.route("/", methods=["GET"])
 def home():

@@ -1,6 +1,6 @@
-import os
-import requests
 from flask import Flask, request, jsonify
+import requests
+import os
 from flask_cors import CORS
 
 app = Flask(__name__)
@@ -39,4 +39,9 @@ def send_sms():
 
 @app.route("/", methods=["GET"])
 def home():
-    return "API JustSend V2 działa ✅"
+    return "JustSend SMS API działa ✅"
+
+# ⬇️ TO JEST NAJWAŻNIEJSZY FRAGMENT DLA RENDER
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)

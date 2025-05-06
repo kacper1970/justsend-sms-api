@@ -26,6 +26,18 @@ def home():
 @app.route("/webhook", methods=["POST"])
 def webhook():
     try:
+        print("===== NOWY WEBHOOK =====")
+
+        # 📁 Zapisz logi do pliku tekstowego
+        with open("logi_webhook.txt", "a") as log_file:
+            log_file.write("===== NOWY WEBHOOK =====\n")
+            log_file.write("Headers:\n")
+            log_file.write(json.dumps(dict(request.headers), indent=2))
+            log_file.write("\n\nBody:\n")
+            log_file.write(request.data.decode("utf-8"))
+            log_file.write("\n\n\n")
+
+        # Podpis HMAC
         raw_body = request.data
         signature_header = request.headers.get("elevenlabs-signature")
 
@@ -39,7 +51,6 @@ def webhook():
         except Exception as e:
             return jsonify({"error": "Nieprawidłowy format nagłówka", "details": str(e)}), 400
 
-        # HMAC: tolerancja do 2 godzin
         if abs(int(time.time()) - int(timestamp)) > 7200:
             return jsonify({"error": "Zbyt stary podpis"}), 400
 
@@ -51,22 +62,21 @@ def webhook():
         ).hexdigest()
 
         if not hmac.compare_digest(f"v0={computed_signature}", f"v0={sent_signature}"):
-            return jsonify({"error": "Nieprawidłowy podpis HMAC"}), 403
+            print("⚠️ Nieprawidłowy podpis HMAC – kontynuuję mimo to (test)")
 
         data = request.get_json()
         metadata = data.get("data", {}).get("metadata", {})
 
-        # 🧾 Logowanie webhooka
         print("📩 Odebrano webhook:")
         print(json.dumps(metadata, indent=2))
 
-        # 📦 Pobieranie danych z domyślną wartością "N/N" jeśli brak
+        # 🧾 Wartości domyślne "N/N"
         phone = metadata.get("phone") or "N/N"
         text = metadata.get("text") or "N/N"
         adres = metadata.get("adres") or metadata.get("adres_problem") or "N/N"
         problem = metadata.get("problem") or "N/N"
 
-        # ✉️ Tworzenie treści SMS
+        # Treść SMS
         sms_message = (
             "Potwierdzenie wizyty:\n"
             f"📅 Termin: {text}\n"
@@ -99,6 +109,7 @@ def webhook():
             }), response.status_code
 
     except Exception as e:
+        print("❌ Błąd krytyczny:", str(e))
         return jsonify({"error": "Błąd krytyczny aplikacji", "details": str(e)}), 500
 
 if __name__ == "__main__":

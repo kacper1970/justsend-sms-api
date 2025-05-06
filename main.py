@@ -4,18 +4,19 @@ import os
 import hmac
 import hashlib
 import time
+import json
 from flask_cors import CORS
 
 app = Flask(__name__)
 CORS(app)
 
-# JustSend konfiguracja
+# Konfiguracja JustSend
 JUSTSEND_URL = "https://justsend.io/api/sender/singlemessage/send"
 APP_KEY = os.getenv("JS_APP_KEY")
 SENDER = os.getenv("JS_SENDER", "ENERTIA")
 VARIANT = os.getenv("JS_VARIANT", "PRO")
 
-# Webhook Secret z ElevenLabs
+# Sekret do HMAC (ElevenLabs Webhook)
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET")
 
 @app.route("/", methods=["GET"])
@@ -38,11 +39,10 @@ def webhook():
         except Exception as e:
             return jsonify({"error": "Nieprawidłowy format nagłówka", "details": str(e)}), 400
 
-        # Sprawdzenie czy podpis nie jest za stary (300s = 5 min)
+        # HMAC: tolerancja do 2 godzin
         if abs(int(time.time()) - int(timestamp)) > 7200:
             return jsonify({"error": "Zbyt stary podpis"}), 400
 
-        # Oblicz własny podpis HMAC
         message = f"{timestamp}.{raw_body.decode('utf-8')}"
         computed_signature = hmac.new(
             key=WEBHOOK_SECRET.encode("utf-8"),
@@ -53,28 +53,28 @@ def webhook():
         if not hmac.compare_digest(f"v0={computed_signature}", f"v0={sent_signature}"):
             return jsonify({"error": "Nieprawidłowy podpis HMAC"}), 403
 
-        # Parsowanie danych JSON
         data = request.get_json()
         metadata = data.get("data", {}).get("metadata", {})
 
-       phone = metadata.get("phone")
-text = metadata.get("text")
-adres = metadata.get("adres")
-problem = metadata.get("problem")
+        phone = metadata.get("phone")
+        text = metadata.get("text")
+        adres = metadata.get("adres")
+        problem = metadata.get("problem")
 
-# 🧪 Loguj wszystko, co przychodzi
-print("==> Odebrano webhook od ElevenLabs:")
-print(json.dumps(metadata, indent=2))
+        # 🧾 Logowanie webhooka
+        print("📩 Odebrano webhook:")
+        print(json.dumps(metadata, indent=2))
 
-# 📤 Sprawdź kompletność danych
-if not all([phone, text, adres, problem]):
-    print("⚠️ Brakuje jednego lub więcej pól – SMS nie zostanie wysłany.")
-    return jsonify({
-        "status": "przyjęto",
-        "note": "brak wymaganych danych – SMS nie wysłano",
-        "odebrano": metadata
-    }), 200
+        # ✅ Jeżeli brakuje danych – nie wysyłamy SMS, ale zwracamy 200
+        if not all([phone, text, adres, problem]):
+            print("⚠️ Brakuje pól – SMS nie zostanie wysłany.")
+            return jsonify({
+                "status": "przyjęto",
+                "note": "brak wymaganych danych – SMS nie wysłano",
+                "odebrano": metadata
+            }), 200
 
+        # ✉️ Tworzenie treści SMS
         sms_message = (
             "Potwierdzenie wizyty:\n"
             f"📅 Termin: {text}\n"

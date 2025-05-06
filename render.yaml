@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: justsend-sms-api
+    runtime: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python main.py"

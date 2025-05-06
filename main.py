@@ -28,7 +28,7 @@ def webhook():
     try:
         print("===== NOWY WEBHOOK =====")
 
-        # 📁 Zapisz logi do pliku tekstowego
+        # 📁 Zapisz logi do pliku
         with open("logi_webhook.txt", "a") as log_file:
             log_file.write("===== NOWY WEBHOOK =====\n")
             log_file.write("Headers:\n")
@@ -111,6 +111,15 @@ def webhook():
     except Exception as e:
         print("❌ Błąd krytyczny:", str(e))
         return jsonify({"error": "Błąd krytyczny aplikacji", "details": str(e)}), 500
+
+@app.route("/log", methods=["GET"])
+def show_log():
+    try:
+        with open("logi_webhook.txt", "r") as f:
+            content = f.read()
+        return f"<pre>{content}</pre>"
+    except FileNotFoundError:
+        return "Brak pliku logi_webhook.txt", 404
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
